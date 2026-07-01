@@ -1,0 +1,25 @@
+{
+  // Worker 配置文件，由 Cloudflare 部署时读取
+  "name": "e-bills",
+  "main": "worker.js",
+  "compatibility_date": "2024-01-01",
+
+  // 静态资源目录（index.html / styles.css / app.js）
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS"
+  },
+
+  // KV 命名空间绑定（部署后需要在 Cloudflare Dashboard 创建命名空间并绑定）
+  // 变量名 POWER_RECORDS 必须与 worker.js 中代码一致
+  "kv_namespaces": [
+    {
+      "binding": "POWER_RECORDS",
+      "id": "c7b80e6764e84bd498cf65ae1fb4b8b9"
+    }
+  ],
+
+  // 禁用 workers.dev 和预览 URL 的警告
+  "workers_dev": true,
+  "preview_urls": true
+}

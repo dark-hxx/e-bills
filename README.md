@@ -1,6 +1,6 @@
 # 电费用量计算网页
 
-这是一个可直接部署到 Cloudflare Pages 的静态网页，用来替代 `计算.xlsx` 中的月度电费分摊计算。
+这是一个部署到 Cloudflare Workers 的网页，用来替代 `计算.xlsx` 中的月度电费分摊计算，支持多设备云端同步。
 
 ## 计算规则
 
@@ -13,34 +13,35 @@
 
 直接用浏览器打开 `index.html` 即可。数据会保存在当前浏览器的 `localStorage` 中。
 
-## Cloudflare Pages 部署
+## Cloudflare Workers 部署
 
-1. 登录 Cloudflare Dashboard。
-2. 进入 `Workers & Pages`，创建 `Pages` 项目。
-3. 选择上传静态资源，上传当前目录中的 `index.html`、`styles.css`、`app.js`，以及 `functions` 目录。
-4. 部署后即可在手机 Web 端访问。
-
-## 多设备云端同步（重要）
-
-数据默认存在浏览器 `localStorage`，各设备互不相通。启用云端同步后，电脑录入、手机刷新即可看到同一份数据。
+本项目已配置自动部署，代码推送到 GitHub 后，Cloudflare 会自动拉取并部署。
 
 ### 一次性配置步骤
 
-1. 在 Cloudflare Dashboard 进入 `Workers & Pages` → `KV`，创建一个命名空间，名称随意（如 `power-records`）。
-2. 进入你的 Pages 项目 → `设置` → `函数` → `KV 命名空间绑定`。
-3. 新增绑定：
-   - 变量名称：`POWER_RECORDS`（必须完全一致）
-   - KV 命名空间：选上一步创建的那个
-4. 重新部署（或触发一次新部署）使绑定生效。
+**1. 创建 KV 命名空间**
+- 进入 Cloudflare Dashboard → Workers & Pages → KV
+- 创建命名空间，名称随意（如 `power-records`）
+- 复制命名空间 ID（一串 32 位字符）
 
-### 工作原理
+**2. 修改 `wrangler.jsonc` 配置文件**
+- 打开项目根目录的 `wrangler.jsonc`
+- 找到 `kv_namespaces` 里的 `"id": "请替换为你的 KV 命名空间 ID"`
+- 把引号里的占位文本替换成你复制的 ID
+- 提交并推送代码
+
+**3. 验证部署**
+- 访问你的 Worker 地址（类似 `https://e-bills.你的账号.workers.dev`）
+- 页面应正常显示，标题下会显示同步状态
+
+## 工作原理
 
 - 打开页面时，自动从 `/api/records` 拉取云端数据并覆盖本机。
 - 每次保存/删除/导入记录时，自动推送到云端。
 - 若云端不可用（如未配置 KV 或断网），自动降级为纯本机 `localStorage`，不影响使用。
 - 页面标题下方的小字会实时显示同步状态（同步中 / 已同步 / 失败）。
 
-> 注意：当前为家庭内部使用，接口未做鉴权。若担心他人访问，可在 Pages 项目上启用 Cloudflare Access 做访问控制。
+> 注意：当前为家庭内部使用，接口未做鉴权。若担心他人访问，可在 Worker 上启用 Cloudflare Access 做访问控制。
 
 ## 数据备份
 
