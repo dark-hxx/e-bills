@@ -1,0 +1,455 @@
+const STORAGE_KEY = "power-billing-records-v1";
+const BARK_ENDPOINT_KEY = "power-billing-bark-endpoint-v1";
+const CLOUD_META_KEY = "power-billing-cloud-updated-v1";
+const CLOUD_API = "/api/records";
+const homes = ["A", "B", "C", "D"];
+const colors = ["#2563eb", "#db2777", "#f59e0b", "#059669"];
+
+const seedRecords = [
+  { month: "26.1", meters: { A: 19001, B: 9629, C: 11513, D: 10073 }, totalAmount: 0 },
+  { month: "26.3", meters: { A: 19370, B: 9728, C: 11662, D: 10438 }, totalAmount: 605.1 },
+  { month: "26.4", meters: { A: 19419, B: 9769, C: 11692, D: 10563 }, totalAmount: 223.4 },
+  { month: "26.5", meters: { A: 19543, B: 9804, C: 11746, D: 10688 }, totalAmount: 266 },
+];
+
+const el = {
+  form: document.querySelector("#recordForm"),
+  month: document.querySelector("#month"),
+  totalAmount: document.querySelector("#totalAmount"),
+  meters: {
+    A: document.querySelector("#meterA"),
+    B: document.querySelector("#meterB"),
+    C: document.querySelector("#meterC"),
+    D: document.querySelector("#meterD"),
+  },
+  currentUsage: document.querySelector("#currentUsage"),
+  currentAmount: document.querySelector("#currentAmount"),
+  currentRate: document.querySelector("#currentRate"),
+  previewUsage: document.querySelector("#previewUsage"),
+  previewCheck: document.querySelector("#previewCheck"),
+  recordsBody: document.querySelector("#recordsBody"),
+  chart: document.querySelector("#usageChart"),
+  resetBtn: document.querySelector("#resetBtn"),
+  copyMessageBtn: document.querySelector("#copyMessageBtn"),
+  copyFallback: document.querySelector("#copyFallback"),
+  sendBarkBtn: document.querySelector("#sendBarkBtn"),
+  barkEndpoint: document.querySelector("#barkEndpoint"),
+  barkStatus: document.querySelector("#barkStatus"),
+  exportBtn: document.querySelector("#exportBtn"),
+  importFile: document.querySelector("#importFile"),
+  syncStatus: document.querySelector("#syncStatus"),
+};
+
+let records = loadRecords();
+let editingMonth = "";
+el.barkEndpoint.value = localStorage.getItem(BARK_ENDPOINT_KEY) || "";
+
+function loadRecords() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (Array.isArray(saved) && saved.length) return normalizeRecords(saved);
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+  return normalizeRecords(seedRecords);
+}
+
+function normalizeRecords(nextRecords) {
+  return nextRecords
+    .filter((record) => record && record.month && record.meters)
+    .map((record) => ({
+      month: String(record.month),
+      meters: Object.fromEntries(homes.map((home) => [home, Number(record.meters[home]) || 0])),
+      totalAmount: Number(record.totalAmount) || 0,
+    }))
+    .sort(compareMonth);
+}
+
+function compareMonth(a, b) {
+  return parseFloat(a.month) - parseFloat(b.month);
+}
+
+function saveRecords() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  pushToCloud();
+}
+
+function setSyncStatus(message, state = "") {
+  if (!el.syncStatus) return;
+  el.syncStatus.textContent = message;
+  el.syncStatus.dataset.state = state;
+}
+
+async function pushToCloud() {
+  setSyncStatus("正在保存到云端…", "syncing");
+  try {
+    const response = await fetch(CLOUD_API, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(records),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    localStorage.setItem(CLOUD_META_KEY, String(Date.now()));
+    setSyncStatus("已同步到云端", "ok");
+  } catch {
+    setSyncStatus("云端保存失败，已存本机", "error");
+  }
+}
+
+async function pullFromCloud() {
+  setSyncStatus("正在从云端加载…", "syncing");
+  try {
+    const response = await fetch(CLOUD_API, { method: "GET" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const cloud = await response.json();
+    if (Array.isArray(cloud) && cloud.length) {
+      records = normalizeRecords(cloud);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      setSyncStatus("已从云端同步", "ok");
+      render();
+    } else {
+      // 云端还没有数据，把本机数据推上去作为初始值
+      setSyncStatus("云端暂无数据，正在上传本机记录…", "syncing");
+      await pushToCloud();
+    }
+  } catch {
+    setSyncStatus("云端不可用，使用本机数据", "error");
+  }
+}
+
+function money(value) {
+  return `${round(value, 2).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 元`;
+}
+
+function kwh(value) {
+  return `${round(value, 2).toLocaleString("zh-CN", { maximumFractionDigits: 2 })} 度`;
+}
+
+function round(value, digits = 2) {
+  const base = 10 ** digits;
+  return Math.round((Number(value) + Number.EPSILON) * base) / base;
+}
+
+function getCalculatedRows() {
+  return records.map((record, index) => {
+    const previous = records[index - 1];
+    const usage = {};
+    homes.forEach((home) => {
+      usage[home] = previous ? record.meters[home] - previous.meters[home] : 0;
+    });
+    const totalUsage = homes.reduce((sum, home) => sum + usage[home], 0);
+    const amounts = {};
+    homes.forEach((home) => {
+      amounts[home] = totalUsage > 0 ? (usage[home] / totalUsage) * record.totalAmount : 0;
+    });
+    return { ...record, usage, totalUsage, amounts };
+  });
+}
+
+function render() {
+  const rows = getCalculatedRows();
+  const latest = rows.at(-1);
+  el.currentUsage.textContent = latest ? kwh(latest.totalUsage) : "0 度";
+  el.currentAmount.textContent = latest ? money(latest.totalAmount) : "0 元";
+  el.currentRate.textContent =
+    latest && latest.totalUsage > 0 ? `${round(latest.totalAmount / latest.totalUsage, 4)} 元/度` : "0 元/度";
+
+  el.recordsBody.innerHTML = rows
+    .map((row, index) => {
+      const cells = homes
+        .map(
+          (home, homeIndex) => `
+            <td>
+              <div class="home-line" style="--home-color: ${colors[homeIndex]}">
+                <span class="home-dot" aria-hidden="true"></span>
+                <span class="usage">${kwh(row.usage[home])}</span>
+              </div>
+              <div class="amount">${money(row.amounts[home])}</div>
+            </td>
+          `,
+        )
+        .join("");
+
+      return `
+        <tr>
+          <td><strong>${row.month}</strong></td>
+          ${cells}
+          <td>${index === 0 ? "基准月" : kwh(row.totalUsage)}</td>
+          <td>${index === 0 ? "-" : money(row.totalAmount)}</td>
+          <td>
+            <div class="row-actions">
+              <button class="mini-btn" type="button" data-edit="${row.month}">编辑</button>
+              <button class="mini-btn danger" type="button" data-delete="${row.month}">删除</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  drawChart(rows.filter((row) => row.totalUsage > 0));
+  updatePreview();
+}
+
+function drawChart(rows) {
+  const canvas = el.chart;
+  const ctx = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+
+  const pad = { left: 58, right: 28, top: 26, bottom: 54 };
+  const chartW = width - pad.left - pad.right;
+  const chartH = height - pad.top - pad.bottom;
+  const maxUsage = Math.max(10, ...rows.flatMap((row) => homes.map((home) => row.usage[home])));
+
+  ctx.strokeStyle = "#d7e0ea";
+  ctx.lineWidth = 1;
+  ctx.font = "22px Microsoft YaHei, sans-serif";
+  ctx.fillStyle = "#526071";
+  for (let i = 0; i <= 4; i += 1) {
+    const y = pad.top + (chartH / 4) * i;
+    const value = Math.round(maxUsage - (maxUsage / 4) * i);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(width - pad.right, y);
+    ctx.stroke();
+    ctx.fillText(String(value), 8, y + 7);
+  }
+
+  if (!rows.length) {
+    ctx.fillStyle = "#526071";
+    ctx.fillText("录入至少两个月读数后显示趋势", pad.left, height / 2);
+    return;
+  }
+
+  const xFor = (index) => pad.left + (rows.length === 1 ? chartW / 2 : (chartW / (rows.length - 1)) * index);
+  const yFor = (value) => pad.top + chartH - (value / maxUsage) * chartH;
+
+  homes.forEach((home, homeIndex) => {
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "#ffffff";
+    ctx.beginPath();
+    rows.forEach((row, index) => {
+      const x = xFor(index);
+      const y = yFor(row.usage[home]);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    ctx.strokeStyle = colors[homeIndex];
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    rows.forEach((row, index) => {
+      const x = xFor(index);
+      const y = yFor(row.usage[home]);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    rows.forEach((row, index) => {
+      const x = xFor(index);
+      const y = yFor(row.usage[home]);
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(x, y, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = colors[homeIndex];
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    ctx.font = "bold 20px Microsoft YaHei, sans-serif";
+    const legendX = pad.left + homeIndex * 124;
+    ctx.fillStyle = colors[homeIndex];
+    ctx.fillRect(legendX, 8, 28, 8);
+    ctx.fillText(`${home} 家`, legendX + 36, 22);
+  });
+
+  ctx.fillStyle = "#526071";
+  ctx.font = "20px Microsoft YaHei, sans-serif";
+  rows.forEach((row, index) => {
+    ctx.fillText(row.month, xFor(index) - 18, height - 18);
+  });
+}
+
+function readForm() {
+  return {
+    month: el.month.value.trim(),
+    totalAmount: Number(el.totalAmount.value) || 0,
+    meters: Object.fromEntries(homes.map((home) => [home, Number(el.meters[home].value) || 0])),
+  };
+}
+
+function updatePreview() {
+  const draft = readForm();
+  const comparisonRecords = normalizeRecords([
+    ...records.filter((record) => record.month !== editingMonth && record.month !== draft.month),
+    draft,
+  ]);
+  const draftIndex = comparisonRecords.findIndex((record) => record.month === draft.month);
+  const previous = draftIndex > 0 ? comparisonRecords[draftIndex - 1] : null;
+  const usage = previous ? homes.reduce((sum, home) => sum + draft.meters[home] - previous.meters[home], 0) : 0;
+  el.previewUsage.textContent = kwh(usage);
+  el.previewCheck.textContent = money(usage > 0 ? draft.totalAmount : 0);
+}
+
+function fillForm(record) {
+  editingMonth = record.month;
+  el.month.value = record.month;
+  el.totalAmount.value = record.totalAmount || "";
+  homes.forEach((home) => {
+    el.meters[home].value = record.meters[home] || "";
+  });
+  updatePreview();
+  el.month.focus();
+}
+
+function clearForm() {
+  editingMonth = "";
+  el.form.reset();
+  updatePreview();
+}
+
+function downloadJson() {
+  const blob = new Blob([JSON.stringify(records, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `电费记录-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function plainNumber(value, digits = 2) {
+  return round(value, digits).toLocaleString("zh-CN", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+function buildGroupMessage() {
+  const latest = getCalculatedRows().filter((row) => row.totalUsage > 0).at(-1);
+  if (!latest) return "暂无可复制的本月电费数据";
+  const lines = [`${latest.month}月电费：`];
+  homes.forEach((home) => {
+    lines.push(`${home}户 用电量${plainNumber(latest.usage[home], 0)}度，金额${plainNumber(latest.amounts[home])}元`);
+  });
+  lines.push(`总用电量${plainNumber(latest.totalUsage, 0)}度，总金额${plainNumber(latest.totalAmount)}元`);
+  return lines.join("\n");
+}
+
+async function copyGroupMessage() {
+  const message = buildGroupMessage();
+  try {
+    await navigator.clipboard.writeText(message);
+  } catch {
+    el.copyFallback.value = message;
+    el.copyFallback.hidden = false;
+    el.copyFallback.select();
+    document.execCommand("copy");
+    el.copyFallback.hidden = true;
+  }
+
+  const original = el.copyMessageBtn.textContent;
+  el.copyMessageBtn.textContent = "已复制";
+  el.copyMessageBtn.classList.add("copied");
+  setTimeout(() => {
+    el.copyMessageBtn.textContent = original;
+    el.copyMessageBtn.classList.remove("copied");
+  }, 1200);
+}
+
+function normalizeBarkEndpoint(input) {
+  const value = input.trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value.replace(/\/$/, "");
+  return `https://api.day.app/${encodeURIComponent(value)}`;
+}
+
+function setBarkStatus(message, isError = false) {
+  el.barkStatus.textContent = message;
+  el.barkStatus.classList.toggle("error", isError);
+}
+
+async function sendBarkMessage() {
+  const endpoint = normalizeBarkEndpoint(el.barkEndpoint.value);
+  if (!endpoint) {
+    setBarkStatus("先填写 Bark 地址或 Key。", true);
+    el.barkEndpoint.focus();
+    return;
+  }
+
+  localStorage.setItem(BARK_ENDPOINT_KEY, el.barkEndpoint.value.trim());
+  const message = buildGroupMessage();
+  const title = "本月电费";
+  const url = `${endpoint}/${encodeURIComponent(title)}/${encodeURIComponent(message)}?group=${encodeURIComponent("电费")}&copy=${encodeURIComponent(message)}`;
+
+  el.sendBarkBtn.disabled = true;
+  setBarkStatus("正在发送到手机...");
+  try {
+    const response = await fetch(url, { method: "GET" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    setBarkStatus("已发送到 iPhone，可直接从 Bark 里复制。");
+  } catch {
+    setBarkStatus("发送失败，请检查 Bark 地址/Key，或确认 Cloudflare 页面可联网。", true);
+  } finally {
+    el.sendBarkBtn.disabled = false;
+  }
+}
+
+el.form.addEventListener("input", updatePreview);
+el.form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const draft = readForm();
+  if (!draft.month) return;
+  const existingIndex = records.findIndex((record) => record.month === editingMonth || record.month === draft.month);
+  if (existingIndex >= 0) records[existingIndex] = draft;
+  else records.push(draft);
+  records = normalizeRecords(records);
+  saveRecords();
+  clearForm();
+  render();
+});
+
+el.recordsBody.addEventListener("click", (event) => {
+  const editMonth = event.target.dataset.edit;
+  const deleteMonth = event.target.dataset.delete;
+  if (editMonth) {
+    const record = records.find((item) => item.month === editMonth);
+    if (record) fillForm(record);
+  }
+  if (deleteMonth) {
+    records = records.filter((item) => item.month !== deleteMonth);
+    saveRecords();
+    render();
+  }
+});
+
+el.resetBtn.addEventListener("click", clearForm);
+el.copyMessageBtn.addEventListener("click", copyGroupMessage);
+el.sendBarkBtn.addEventListener("click", sendBarkMessage);
+el.barkEndpoint.addEventListener("change", () => {
+  localStorage.setItem(BARK_ENDPOINT_KEY, el.barkEndpoint.value.trim());
+  setBarkStatus("Bark 设置已保存。");
+});
+el.exportBtn.addEventListener("click", downloadJson);
+el.importFile.addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  records = normalizeRecords(JSON.parse(text));
+  saveRecords();
+  clearForm();
+  render();
+  event.target.value = "";
+});
+window.addEventListener("resize", () => drawChart(getCalculatedRows().filter((row) => row.totalUsage > 0)));
+
+render();
+pullFromCloud();

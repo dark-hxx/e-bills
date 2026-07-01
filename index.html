@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>电费用量计算</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="topbar" aria-label="电费用量概览">
+        <div>
+          <p class="eyebrow">Power Billing</p>
+          <h1>电费用量计算</h1>
+          <span id="syncStatus" class="sync-status">云端同步中…</span>
+        </div>
+        <div class="actions">
+          <button id="copyMessageBtn" class="copy-btn" type="button">复制群消息</button>
+          <button id="sendBarkBtn" class="copy-btn secondary" type="button">发送到手机</button>
+          <button id="exportBtn" class="icon-btn" type="button" aria-label="导出数据" title="导出数据">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>
+          </button>
+          <label class="icon-btn file-btn" aria-label="导入数据" title="导入数据">
+            <input id="importFile" type="file" accept="application/json" />
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0 4 4m-4-4-4 4M5 3h14"/></svg>
+          </label>
+        </div>
+      </section>
+
+      <textarea id="copyFallback" class="copy-fallback" readonly aria-hidden="true"></textarea>
+
+      <section class="bark-strip" aria-label="Bark 推送设置">
+        <label>
+          <span>Bark 地址或 Key</span>
+          <input id="barkEndpoint" type="text" placeholder="https://api.day.app/xxxx 或只填 xxxx" autocomplete="off" />
+        </label>
+        <span id="barkStatus" class="bark-status">填一次即可，自动保存在本机浏览器。</span>
+      </section>
+
+      <section class="summary-grid" aria-label="本月汇总">
+        <article class="metric">
+          <span>本月总用电量</span>
+          <strong id="currentUsage">0 度</strong>
+        </article>
+        <article class="metric">
+          <span>本月总金额</span>
+          <strong id="currentAmount">0 元</strong>
+        </article>
+        <article class="metric">
+          <span>平均单价</span>
+          <strong id="currentRate">0 元/度</strong>
+        </article>
+      </section>
+
+      <section class="workbench compact">
+        <form id="recordForm" class="panel form-panel">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">Manual Entry</p>
+              <h2>录入本月读数</h2>
+            </div>
+            <button id="resetBtn" class="text-btn" type="button">清空</button>
+          </div>
+
+          <div class="quick-grid">
+            <label>
+              <span>月份</span>
+              <input id="month" type="text" inputmode="decimal" placeholder="例如 26.6" required />
+            </label>
+            <label>
+              <span>总金额</span>
+              <input id="totalAmount" type="number" inputmode="decimal" step="0.01" placeholder="元" required />
+            </label>
+            <label>
+              <span>A 读数</span>
+              <input id="meterA" type="number" inputmode="decimal" step="0.01" required />
+            </label>
+            <label>
+              <span>B 读数</span>
+              <input id="meterB" type="number" inputmode="decimal" step="0.01" required />
+            </label>
+            <label>
+              <span>C 读数</span>
+              <input id="meterC" type="number" inputmode="decimal" step="0.01" required />
+            </label>
+            <label>
+              <span>D 读数</span>
+              <input id="meterD" type="number" inputmode="decimal" step="0.01" required />
+            </label>
+          </div>
+
+          <div class="preview" aria-live="polite">
+            <div><span>自动计算</span><strong id="previewUsage">0 度</strong></div>
+            <div><span>金额校验</span><strong id="previewCheck">0 元</strong></div>
+          </div>
+
+          <button class="primary-btn" type="submit">保存本月记录</button>
+        </form>
+      </section>
+
+      <section class="panel chart-panel">
+        <div class="panel-title">
+          <div>
+            <p class="eyebrow">Trends</p>
+            <h2>每家每月用电量变化</h2>
+          </div>
+        </div>
+        <canvas id="usageChart" width="1200" height="420" aria-label="每家每月用电量趋势图"></canvas>
+      </section>
+
+      <section class="panel table-panel">
+        <div class="panel-title">
+          <div>
+            <p class="eyebrow">Records</p>
+            <h2>月度记录</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>月份</th>
+                <th>A量/金额</th>
+                <th>B量/金额</th>
+                <th>C量/金额</th>
+                <th>D量/金额</th>
+                <th>总用电量</th>
+                <th>总金额</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="recordsBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>
