@@ -375,6 +375,100 @@ tr:hover td {
   color: var(--muted);
 }
 
+.month-sub {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.meter-sub {
+  margin-top: 3px;
+  color: #8a97a6;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.month-sub.change.up {
+  color: var(--red);
+}
+
+.month-sub.change.down {
+  color: var(--green);
+}
+
+.month-sub.change.flat,
+.month-sub.change.gap {
+  color: var(--amber);
+}
+
+.month-sub.change.idle {
+  color: var(--muted);
+}
+
+.change-tag {
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.change-tag.up {
+  color: var(--red);
+}
+
+.change-tag.down {
+  color: var(--green);
+}
+
+.change-tag.flat {
+  color: var(--muted);
+}
+
+.change-tag.idle {
+  color: var(--muted);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px 10px 4px;
+}
+
+.pagination[hidden] {
+  display: none;
+}
+
+.page-btn {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.page-btn:hover:not(:disabled) {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.page-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.page-info {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 120px;
+  text-align: center;
+}
+
 .row-actions {
   display: flex;
   gap: 8px;
@@ -433,6 +527,20 @@ tr:hover td {
 
   table {
     min-width: 780px;
+  }
+
+  .pagination {
+    gap: 8px;
+  }
+
+  .page-btn {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .page-info {
+    min-width: 96px;
+    font-size: 11px;
   }
 }
 

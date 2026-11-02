@@ -38,10 +38,16 @@ const el = {
   exportBtn: document.querySelector("#exportBtn"),
   importFile: document.querySelector("#importFile"),
   syncStatus: document.querySelector("#syncStatus"),
+  pagination: document.querySelector("#pagination"),
+  pageInfo: document.querySelector("#pageInfo"),
+  newerBtn: document.querySelector("#newerBtn"),
+  olderBtn: document.querySelector("#olderBtn"),
 };
 
 let records = loadRecords();
 let editingMonth = "";
+const PAGE_SIZE = 6;
+let page = 1;
 el.barkEndpoint.value = localStorage.getItem(BARK_ENDPOINT_KEY) || "";
 
 function loadRecords() {
@@ -65,8 +71,19 @@ function normalizeRecords(nextRecords) {
     .sort(compareMonth);
 }
 
+// 月份格式为 "YY.M"，必须按「年」「月」两段分别比较，
+// 不能用 parseFloat：parseFloat("26.10") === 26.1，会把 10 月和 1 月当成同一个月。
+function monthKey(month) {
+  const text = String(month).trim();
+  const dot = text.indexOf(".");
+  const year = Number(dot === -1 ? text : text.slice(0, dot));
+  const mon = Number(dot === -1 ? 0 : text.slice(dot + 1));
+  if (!Number.isFinite(year) || !Number.isFinite(mon)) return Number.POSITIVE_INFINITY;
+  return year * 100 + mon;
+}
+
 function compareMonth(a, b) {
-  return parseFloat(a.month) - parseFloat(b.month);
+  return monthKey(a.month) - monthKey(b.month);
 }
 
 function saveRecords() {
@@ -131,7 +148,7 @@ function round(value, digits = 2) {
 }
 
 function getCalculatedRows() {
-  return records.map((record, index) => {
+  const rows = records.map((record, index) => {
     const previous = records[index - 1];
     const usage = {};
     homes.forEach((home) => {
@@ -144,6 +161,34 @@ function getCalculatedRows() {
     });
     return { ...record, usage, totalUsage, amounts };
   });
+
+  // 环比：与上一条记录比较，每户单独计算。月份不连续时百分比会失真，改标记跨月数。
+  return rows.map((row, index) => {
+    const previous = rows[index - 1];
+    if (!previous) return { ...row, change: {}, gap: 0 };
+    const gap = monthIndex(row.month) - monthIndex(previous.month);
+    const change = {};
+    homes.forEach((home) => {
+      const previousUsage = previous.usage[home];
+      change[home] = gap === 1 && previousUsage > 0 ? (row.usage[home] - previousUsage) / previousUsage : null;
+    });
+    return { ...row, change, gap };
+  });
+}
+
+function monthIndex(month) {
+  const key = monthKey(month);
+  if (!Number.isFinite(key)) return 0;
+  const year = Math.floor(key / 100);
+  return year * 12 + (key % 100);
+}
+
+function formatChange(value) {
+  if (value === null || value === undefined) return { text: "—", state: "idle" };
+  const percent = round(value * 100, 0);
+  if (percent === 0) return { text: "持平", state: "flat" };
+  const arrow = percent > 0 ? "↑" : "↓";
+  return { text: `${arrow} ${Math.abs(percent)}%`, state: percent > 0 ? "up" : "down" };
 }
 
 function render() {
@@ -154,28 +199,55 @@ function render() {
   el.currentRate.textContent =
     latest && latest.totalUsage > 0 ? `${round(latest.totalAmount / latest.totalUsage, 4)} 元/度` : "0 元/度";
 
-  el.recordsBody.innerHTML = rows
-    .map((row, index) => {
+  renderTable(rows);
+  drawChart(rows.filter((row) => row.totalUsage > 0));
+  updatePreview();
+}
+
+function renderTable(rows) {
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  if (page > totalPages) page = totalPages;
+  if (page < 1) page = 1;
+
+  // 记录按时间升序存储（用量要用「前一条」计算），展示时倒序：最新月份在最上面。
+  const descRows = rows.slice().reverse();
+  const pageRows = descRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const baseMonth = rows.length ? rows[0].month : "";
+
+  el.recordsBody.innerHTML = pageRows
+    .map((row) => {
+      const isBase = row.month === baseMonth;
+      const gapNote = row.gap > 1 ? `<div class="month-sub change gap">跨${row.gap}月</div>` : "";
       const cells = homes
         .map(
-          (home, homeIndex) => `
+          (home, homeIndex) => {
+            // 跨月时百分比失真，每户都不显示，只在月份格标注跨月数。
+            const change = formatChange(row.change[home]);
+            const tag = isBase || row.gap > 1 ? "" : `<span class="change-tag ${change.state}">${change.text}</span>`;
+            return `
             <td>
               <div class="home-line" style="--home-color: ${colors[homeIndex]}">
                 <span class="home-dot" aria-hidden="true"></span>
                 <span class="usage">${kwh(row.usage[home])}</span>
+                ${tag}
               </div>
               <div class="amount">${money(row.amounts[home])}</div>
+              <div class="meter-sub">表 ${plainNumber(row.meters[home], 1)}</div>
             </td>
-          `,
+          `;
+          },
         )
         .join("");
 
       return `
         <tr>
-          <td><strong>${row.month}</strong></td>
+          <td>
+            <strong>${row.month}</strong>
+            ${isBase ? `<div class="month-sub change idle">基准月</div>` : gapNote}
+          </td>
           ${cells}
-          <td>${index === 0 ? "基准月" : kwh(row.totalUsage)}</td>
-          <td>${index === 0 ? "-" : money(row.totalAmount)}</td>
+          <td>${isBase ? "基准月" : kwh(row.totalUsage)}</td>
+          <td>${isBase ? "-" : money(row.totalAmount)}</td>
           <td>
             <div class="row-actions">
               <button class="mini-btn" type="button" data-edit="${row.month}">编辑</button>
@@ -187,8 +259,10 @@ function render() {
     })
     .join("");
 
-  drawChart(rows.filter((row) => row.totalUsage > 0));
-  updatePreview();
+  el.pageInfo.textContent = `第 ${page} / ${totalPages} 页 · 共 ${rows.length} 条`;
+  el.newerBtn.disabled = page <= 1;
+  el.olderBtn.disabled = page >= totalPages;
+  el.pagination.hidden = rows.length <= PAGE_SIZE;
 }
 
 function drawChart(rows) {
@@ -413,6 +487,7 @@ el.form.addEventListener("submit", (event) => {
   else records.push(draft);
   records = normalizeRecords(records);
   saveRecords();
+  page = 1;
   clearForm();
   render();
 });
@@ -433,6 +508,16 @@ el.recordsBody.addEventListener("click", (event) => {
 
 el.resetBtn.addEventListener("click", clearForm);
 el.copyMessageBtn.addEventListener("click", copyGroupMessage);
+el.newerBtn.addEventListener("click", () => {
+  if (page > 1) {
+    page -= 1;
+    renderTable(getCalculatedRows());
+  }
+});
+el.olderBtn.addEventListener("click", () => {
+  page += 1;
+  renderTable(getCalculatedRows());
+});
 el.sendBarkBtn.addEventListener("click", sendBarkMessage);
 el.barkEndpoint.addEventListener("change", () => {
   localStorage.setItem(BARK_ENDPOINT_KEY, el.barkEndpoint.value.trim());

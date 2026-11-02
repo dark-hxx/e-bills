@@ -37,4 +37,23 @@ for (const row of calculateRows(records)) {
   }
 }
 
+// 月份排序回归测试：26.10 必须排在 26.9 之后、26.11 之前，不能被当成 26.1
+function monthKey(month) {
+  const text = String(month).trim();
+  const dot = text.indexOf(".");
+  const year = Number(dot === -1 ? text : text.slice(0, dot));
+  const mon = Number(dot === -1 ? 0 : text.slice(dot + 1));
+  if (!Number.isFinite(year) || !Number.isFinite(mon)) return Number.POSITIVE_INFINITY;
+  return year * 100 + mon;
+}
+
+const sorted = ["26.1", "26.10", "26.3", "26.9", "26.11", "27.1"].sort(
+  (a, b) => monthKey(a) - monthKey(b),
+);
+const expectedOrder = ["26.1", "26.3", "26.9", "26.10", "26.11", "27.1"];
+if (sorted.join(",") !== expectedOrder.join(",")) {
+  throw new Error(`month order: expected ${expectedOrder.join(",")}, got ${sorted.join(",")}`);
+}
+
 console.log("calculation verification passed");
+
