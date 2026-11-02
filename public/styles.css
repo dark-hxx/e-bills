@@ -247,6 +247,66 @@ label span,
   margin-bottom: 18px;
 }
 
+.panel-hint {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  flex: 0 0 auto;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.legend-bar {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #3b82f6, #bfdbfe);
+}
+
+.legend-line {
+  width: 22px;
+  height: 4px;
+  border-radius: 999px;
+  background: #d97706;
+}
+
+.chart-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.chart-stats dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chart-stats dd {
+  margin: 6px 0 0;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+}
+
 .text-btn {
   padding: 0 14px;
 }
@@ -518,6 +578,14 @@ tr:hover td {
 
   .quick-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chart-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chart-legend {
+    gap: 12px;
   }
 
   .metric,

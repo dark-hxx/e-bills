@@ -103,10 +103,41 @@
         <div class="panel-title">
           <div>
             <p class="eyebrow">Trends</p>
-            <h2>每家每月用电量变化</h2>
+            <h2>月度用电量与单价</h2>
+            <p class="panel-hint">
+              <span id="chartScope">-</span> · 柱子看总量起伏，折线看单价是否异常（异常上涨通常意味着抄表或计费问题）。
+            </p>
+          </div>
+          <div class="chart-legend">
+            <span class="legend-item"><i class="legend-bar" aria-hidden="true"></i>总用电量（度）</span>
+            <span class="legend-item"><i class="legend-line" aria-hidden="true"></i>单价（元/度）</span>
           </div>
         </div>
-        <canvas id="usageChart" width="1200" height="420" aria-label="每家每月用电量趋势图"></canvas>
+        <canvas
+          id="usageChart"
+          width="1200"
+          height="400"
+          role="img"
+          aria-label="每月总用电量柱状图与单价折线图"
+        ></canvas>
+        <dl class="chart-stats">
+          <div>
+            <dt>本期总用电</dt>
+            <dd id="statUsage">-</dd>
+          </div>
+          <div>
+            <dt>本期总金额</dt>
+            <dd id="statAmount">-</dd>
+          </div>
+          <div>
+            <dt>本期平均单价</dt>
+            <dd id="statRate">-</dd>
+          </div>
+          <div>
+            <dt>用电最高月</dt>
+            <dd id="statPeak">-</dd>
+          </div>
+        </dl>
       </section>
 
       <section class="panel table-panel">

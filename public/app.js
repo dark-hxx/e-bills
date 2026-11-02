@@ -42,6 +42,11 @@ const el = {
   pageInfo: document.querySelector("#pageInfo"),
   newerBtn: document.querySelector("#newerBtn"),
   olderBtn: document.querySelector("#olderBtn"),
+  statUsage: document.querySelector("#statUsage"),
+  statAmount: document.querySelector("#statAmount"),
+  statRate: document.querySelector("#statRate"),
+  statPeak: document.querySelector("#statPeak"),
+  chartScope: document.querySelector("#chartScope"),
 };
 
 let records = loadRecords();
@@ -200,7 +205,6 @@ function render() {
     latest && latest.totalUsage > 0 ? `${round(latest.totalAmount / latest.totalUsage, 4)} 元/度` : "0 元/度";
 
   renderTable(rows);
-  drawChart(rows.filter((row) => row.totalUsage > 0));
   updatePreview();
 }
 
@@ -263,6 +267,36 @@ function renderTable(rows) {
   el.newerBtn.disabled = page <= 1;
   el.olderBtn.disabled = page >= totalPages;
   el.pagination.hidden = rows.length <= PAGE_SIZE;
+
+  // 图表与统计跟随当前页，和表格看到的是同一批月份。
+  const pageRowsAsc = pageRows.slice().reverse();
+  if (el.chartScope) {
+    el.chartScope.textContent =
+      totalPages > 1 ? `当前显示第 ${page} 页的 ${pageRowsAsc.length} 个月` : `共 ${pageRowsAsc.length} 个月`;
+  }
+  drawChart(pageRowsAsc);
+  updateChartStats(pageRowsAsc);
+}
+
+function updateChartStats(rows) {
+  // 基准月没有用量（无法与上月相减），统计时排除。
+  const valid = rows.filter((row) => row.totalUsage > 0);
+  if (!valid.length) {
+    el.statUsage.textContent = "-";
+    el.statAmount.textContent = "-";
+    el.statRate.textContent = "-";
+    el.statPeak.textContent = "-";
+    return;
+  }
+
+  const totalUsage = valid.reduce((sum, row) => sum + row.totalUsage, 0);
+  const totalAmount = valid.reduce((sum, row) => sum + row.totalAmount, 0);
+  const peak = valid.reduce((max, row) => (row.totalUsage > max.totalUsage ? row : max), valid[0]);
+
+  el.statUsage.textContent = `${plainNumber(totalUsage, 1)} 度`;
+  el.statAmount.textContent = money(totalAmount);
+  el.statRate.textContent = totalUsage > 0 ? `${round(totalAmount / totalUsage, 3)} 元/度` : "-";
+  el.statPeak.textContent = `${peak.month}（${plainNumber(peak.totalUsage, 0)} 度）`;
 }
 
 function drawChart(rows) {
@@ -274,82 +308,125 @@ function drawChart(rows) {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
 
-  const pad = { left: 58, right: 28, top: 26, bottom: 54 };
+  // 左右双轴：左=用电量（度），右=单价（元/度）
+  const pad = { left: 74, right: 76, top: 34, bottom: 58 };
   const chartW = width - pad.left - pad.right;
   const chartH = height - pad.top - pad.bottom;
-  const maxUsage = Math.max(10, ...rows.flatMap((row) => homes.map((home) => row.usage[home])));
 
-  ctx.strokeStyle = "#d7e0ea";
+  const maxUsage = Math.max(10, ...rows.map((row) => row.totalUsage));
+  // 多留一档给柱顶数值标签，避免最高柱的数字画出画布。
+  const usageTop = Math.ceil((maxUsage * 1.12) / 4) * 4 || 4;
+  const rates = rows.map((row) => (row.totalUsage > 0 ? row.totalAmount / row.totalUsage : 0)).filter((v) => v > 0);
+  const maxRate = rates.length ? Math.max(...rates) : 0;
+  const rateTop = maxRate > 0 ? Math.ceil((maxRate * 1.15) / 0.2) * 0.2 : 1;
+
+  // 横向网格 + 左右轴刻度
+  ctx.strokeStyle = "#e4ebf3";
   ctx.lineWidth = 1;
-  ctx.font = "22px Microsoft YaHei, sans-serif";
-  ctx.fillStyle = "#526071";
+  ctx.font = "20px Microsoft YaHei, sans-serif";
   for (let i = 0; i <= 4; i += 1) {
     const y = pad.top + (chartH / 4) * i;
-    const value = Math.round(maxUsage - (maxUsage / 4) * i);
     ctx.beginPath();
     ctx.moveTo(pad.left, y);
-    ctx.lineTo(width - pad.right, y);
+    ctx.lineTo(pad.left + chartW, y);
     ctx.stroke();
-    ctx.fillText(String(value), 8, y + 7);
+
+    ctx.fillStyle = "#8896a6";
+    ctx.textAlign = "right";
+    ctx.fillText(String(Math.round(usageTop - (usageTop / 4) * i)), pad.left - 12, y + 7);
+
+    ctx.fillStyle = "#b45309";
+    ctx.textAlign = "left";
+    ctx.fillText((rateTop - (rateTop / 4) * i).toFixed(2), pad.left + chartW + 12, y + 7);
   }
+  ctx.textAlign = "left";
 
   if (!rows.length) {
     ctx.fillStyle = "#526071";
+    ctx.font = "20px Microsoft YaHei, sans-serif";
     ctx.fillText("录入至少两个月读数后显示趋势", pad.left, height / 2);
     return;
   }
 
-  const xFor = (index) => pad.left + (rows.length === 1 ? chartW / 2 : (chartW / (rows.length - 1)) * index);
-  const yFor = (value) => pad.top + chartH - (value / maxUsage) * chartH;
+  const slot = chartW / rows.length;
+  const barW = Math.min(56, slot * 0.52);
+  const centerX = (index) => pad.left + slot * index + slot / 2;
+  const usageY = (value) => pad.top + chartH - (value / usageTop) * chartH;
+  const rateY = (value) => pad.top + chartH - (value / rateTop) * chartH;
 
-  homes.forEach((home, homeIndex) => {
-    ctx.lineWidth = 8;
-    ctx.strokeStyle = "#ffffff";
-    ctx.beginPath();
-    rows.forEach((row, index) => {
-      const x = xFor(index);
-      const y = yFor(row.usage[home]);
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-
-    ctx.strokeStyle = colors[homeIndex];
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    rows.forEach((row, index) => {
-      const x = xFor(index);
-      const y = yFor(row.usage[home]);
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-
-    rows.forEach((row, index) => {
-      const x = xFor(index);
-      const y = yFor(row.usage[home]);
-      ctx.fillStyle = "#ffffff";
-      ctx.beginPath();
-      ctx.arc(x, y, 9, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = colors[homeIndex];
-      ctx.beginPath();
-      ctx.arc(x, y, 6, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    ctx.font = "bold 20px Microsoft YaHei, sans-serif";
-    const legendX = pad.left + homeIndex * 124;
-    ctx.fillStyle = colors[homeIndex];
-    ctx.fillRect(legendX, 8, 28, 8);
-    ctx.fillText(`${home} 家`, legendX + 36, 22);
-  });
-
-  ctx.fillStyle = "#526071";
-  ctx.font = "20px Microsoft YaHei, sans-serif";
+  // 柱子：每月总用电量
   rows.forEach((row, index) => {
-    ctx.fillText(row.month, xFor(index) - 18, height - 18);
+    const x = centerX(index) - barW / 2;
+    const y = usageY(row.totalUsage);
+    const barH = Math.max(0, pad.top + chartH - y);
+    const gradient = ctx.createLinearGradient(0, y, 0, pad.top + chartH);
+    gradient.addColorStop(0, "#3b82f6");
+    gradient.addColorStop(1, "#bfdbfe");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(x, y, barW, barH, [6, 6, 0, 0]);
+    } else {
+      // 老版本 Safari 不支持 roundRect，退回直角柱子。
+      ctx.rect(x, y, barW, barH);
+    }
+    ctx.fill();
+
+    // 柱顶标数值，标签在柱子左右居中
+    ctx.fillStyle = "#1e40af";
+    ctx.font = "bold 18px Microsoft YaHei, sans-serif";
+    ctx.textAlign = "center";
+    if (row.totalUsage > 0) ctx.fillText(String(Math.round(row.totalUsage)), centerX(index), y - 10);
   });
+
+  // 折线：单价
+  const ratePoints = rows.map((row, index) => ({
+    x: centerX(index),
+    y: row.totalUsage > 0 ? rateY(row.totalAmount / row.totalUsage) : null,
+    rate: row.totalUsage > 0 ? row.totalAmount / row.totalUsage : 0,
+  }));
+  const drawable = ratePoints.filter((point) => point.y !== null);
+
+  if (drawable.length > 1) {
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 8;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    drawable.forEach((point, i) => (i === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y)));
+    ctx.stroke();
+
+    ctx.strokeStyle = "#d97706";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    drawable.forEach((point, i) => (i === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y)));
+    ctx.stroke();
+  }
+
+  drawable.forEach((point) => {
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#d97706";
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // x 轴月份标签：首尾贴边时改为内对齐，避免被裁切
+  ctx.fillStyle = "#526071";
+  ctx.font = "19px Microsoft YaHei, sans-serif";
+  rows.forEach((row, index) => {
+    const x = centerX(index);
+    const textW = ctx.measureText(row.month).width;
+    const half = textW / 2;
+    if (x - half < pad.left - 8) ctx.textAlign = "left";
+    else if (x + half > pad.left + chartW + 8) ctx.textAlign = "right";
+    else ctx.textAlign = "center";
+    const drawX = ctx.textAlign === "left" ? pad.left : ctx.textAlign === "right" ? pad.left + chartW : x;
+    ctx.fillText(row.month, drawX, height - 18);
+  });
+  ctx.textAlign = "left";
 }
 
 function readForm() {
@@ -534,7 +611,7 @@ el.importFile.addEventListener("change", async (event) => {
   render();
   event.target.value = "";
 });
-window.addEventListener("resize", () => drawChart(getCalculatedRows().filter((row) => row.totalUsage > 0)));
+window.addEventListener("resize", () => renderTable(getCalculatedRows()));
 
 render();
 pullFromCloud();
